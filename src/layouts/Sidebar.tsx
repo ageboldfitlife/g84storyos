@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -74,6 +74,14 @@ export default function Sidebar() {
   const projectTitle = useStoryStore((s) => s.project_meta.title);
   const projectStatus = useStoryStore((s) => s.project_meta.status);
 
+  const [clientScore, setClientScore] = useState<number>(0);
+  const [mounted, setMounted] = useState(false);
+
+  React.useEffect(() => {
+    setClientScore(completionScore);
+    setMounted(true);
+  }, [completionScore]);
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname === href;
@@ -136,13 +144,13 @@ export default function Sidebar() {
             <div className="mt-2">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-muted-foreground">Tiến Độ</span>
-                <span className="font-mono-data text-[10px] text-primary">{completionScore}%</span>
+                <span className="font-mono-data text-[10px] text-primary">{mounted ? clientScore : 0}%</span>
               </div>
               <div className="concept-strength-bar">
                 <div
                   className="concept-strength-fill"
                   style={{
-                    width: `${completionScore}%`,
+                    width: `${mounted ? clientScore : 0}%`,
                     background: 'linear-gradient(90deg, var(--primary), var(--accent))',
                   }}
                 />
