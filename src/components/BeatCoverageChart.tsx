@@ -45,7 +45,7 @@ export default function BeatCoverageChart({ beats }: BeatCoverageChartProps) {
   const chartData = beats.map((b) => ({
     ...b,
     value: statusToValue[b.status],
-    shortLabel: b.label.split(' ').slice(-1)[0],
+    shortLabel: (b.label || '').split(' ').slice(-1)[0],
   }));
 
   return (

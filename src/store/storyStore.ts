@@ -11,9 +11,37 @@ import type {
   ToneTag,
   ProjectStatus,
 } from '@/types';
+import type { ShotRuntime } from '@/types/shot-runtime';
+import type { RenderPackage } from '@/types/render-package';
+import { generatePrompt } from '@/lib/prompt-engine';
+import { exportRenderPackage } from '@/lib/mapper';
+import { validateRenderPackage, type ValidationResult } from '@/lib/validator';
+import { processQAResult, type QAReport } from '@/lib/qa-checker';
+import { generateShotsFromPattern } from '@/lib/shot-generator';
+import { hydrateShotsWithScreenplay } from '@/lib/shot-hydrator';
 import { mockProjectState } from '@/mock/storyData';
 
+type RenderTargetTool = RenderPackage['target_tool'];
+
+type PersistedStoryState = Pick<
+  StoryProjectState,
+  | 'project_meta'
+  | 'idea_core'
+  | 'idea_bible'
+  | 'beat_map'
+  | 'screenplay_scenes'
+  | 'shot_intents'
+  | 'export_packages'
+> & {
+  shot_runtimes: Record<string, ShotRuntime>;
+  active_shot_id: string | null;
+};
+
 interface StoryStore extends StoryProjectState {
+  // Shot Runtime state
+  shot_runtimes: Record<string, ShotRuntime>;
+  active_shot_id: string | null;
+
   // Idea Core actions
   updateIdeaCore: (updates: Partial<IdeaCore>) => void;
   setProjectTitle: (title: string) => void;
@@ -37,6 +65,20 @@ interface StoryStore extends StoryProjectState {
   // Beat Map actions
   setBeatMap: (beats: any[]) => void;
 
+  // Shot Runtime CRUD actions
+  addShotRuntime: (shot: ShotRuntime) => void;
+  updateShotRuntime: (shotId: string, updates: Partial<ShotRuntime>) => void;
+  setActiveShot: (shotId: string | null) => void;
+  removeShotRuntime: (shotId: string) => void;
+
+  // Shot Runtime command actions
+  generateShotPrompt: (shotId: string) => void;
+  exportShotRenderPackage: (shotId: string, targetTool: RenderTargetTool) => RenderPackage;
+  validateShotRenderPackage: (pkg: RenderPackage) => ValidationResult;
+  applyShotQAReport: (shotId: string, report: QAReport) => void;
+  applyCinematicPattern: (sceneId: string, patternId: string, screenplayText?: string) => void;
+  markShotAsExported: (shotId: string) => void;
+
   // Utility
   resetToMock: () => void;
   getCompletionScore: () => number;
@@ -46,6 +88,8 @@ export const useStoryStore = create<StoryStore>()(
   persist(
     (set, get) => ({
       ...mockProjectState,
+      shot_runtimes: {},
+      active_shot_id: null,
 
       updateIdeaCore: (updates) =>
         set((state) => ({
@@ -169,7 +213,137 @@ export const useStoryStore = create<StoryStore>()(
           beat_map: beats,
         })),
 
-      resetToMock: () => set(mockProjectState),
+      addShotRuntime: (shot) =>
+        set((state) => ({
+          shot_runtimes: {
+            ...state.shot_runtimes,
+            [shot.A_Identity.shot_id]: shot,
+          },
+          active_shot_id: shot.A_Identity.shot_id,
+        })),
+
+      updateShotRuntime: (shotId, updates) =>
+        set((state) => {
+          const currentShot = state.shot_runtimes[shotId];
+          if (!currentShot) {
+            throw new Error(`ShotRuntime not found: ${shotId}`);
+          }
+
+          return {
+            shot_runtimes: {
+              ...state.shot_runtimes,
+              [shotId]: {
+                ...currentShot,
+                ...updates,
+              },
+            },
+          };
+        }),
+
+      setActiveShot: (shotId) =>
+        set(() => ({
+          active_shot_id: shotId,
+        })),
+
+      removeShotRuntime: (shotId) =>
+        set((state) => {
+          const { [shotId]: _removed, ...remainingShots } = state.shot_runtimes;
+
+          return {
+            shot_runtimes: remainingShots,
+            active_shot_id: state.active_shot_id === shotId ? null : state.active_shot_id,
+          };
+        }),
+
+      generateShotPrompt: (shotId) =>
+        set((state) => {
+          const shot = state.shot_runtimes[shotId];
+          if (!shot) {
+            throw new Error(`ShotRuntime not found: ${shotId}`);
+          }
+
+          return {
+            shot_runtimes: {
+              ...state.shot_runtimes,
+              [shotId]: {
+                ...shot,
+                P_Computed: generatePrompt(shot),
+              },
+            },
+          };
+        }),
+
+      exportShotRenderPackage: (shotId, targetTool) => {
+        const shot = get().shot_runtimes[shotId];
+        if (!shot) {
+          throw new Error(`ShotRuntime not found: ${shotId}`);
+        }
+
+        return exportRenderPackage(shot, targetTool);
+      },
+
+      validateShotRenderPackage: (pkg) => validateRenderPackage(pkg),
+
+      applyShotQAReport: (shotId, report) =>
+        set((state) => {
+          const shot = state.shot_runtimes[shotId];
+          if (!shot) {
+            throw new Error(`ShotRuntime not found: ${shotId}`);
+          }
+
+          return {
+            shot_runtimes: {
+              ...state.shot_runtimes,
+              [shotId]: {
+                ...shot,
+                R_QAState: processQAResult(shot, report),
+              },
+            },
+          };
+        }),
+
+      applyCinematicPattern: (sceneId, patternId, screenplayText = '') => {
+        const state = get();
+        const activeShot = state.active_shot_id ? state.shot_runtimes[state.active_shot_id] : null;
+        const episodeId = activeShot?.A_Identity.episode_id ?? 'E01';
+        const skeletonShots = generateShotsFromPattern(
+          state.project_meta.id,
+          episodeId,
+          sceneId,
+          patternId
+        );
+        const hydratedShots = hydrateShotsWithScreenplay(skeletonShots, screenplayText);
+
+        hydratedShots.forEach((shot) => {
+          get().addShotRuntime(shot);
+        });
+      },
+
+      markShotAsExported: (shotId) =>
+        set((state) => {
+          const shot = state.shot_runtimes[shotId];
+          if (!shot) throw new Error(`ShotRuntime not found: ${shotId}`);
+
+          return {
+            shot_runtimes: {
+              ...state.shot_runtimes,
+              [shotId]: {
+                ...shot,
+                Q_RenderState: {
+                  ...shot.Q_RenderState,
+                  export_status: "EXPORTED_FOR_RENDER",
+                },
+              },
+            },
+          };
+        }),
+
+      resetToMock: () =>
+        set({
+          ...mockProjectState,
+          shot_runtimes: {},
+          active_shot_id: null,
+        }),
 
       getCompletionScore: () => {
         const state = get();
@@ -190,6 +364,27 @@ export const useStoryStore = create<StoryStore>()(
     }),
     {
       name: 'g84-story-os-state',
+      version: 2,
+      migrate: (persistedState, version) => {
+        const state = persistedState as Partial<PersistedStoryState>;
+        const migratedState: PersistedStoryState = {
+          project_meta: state.project_meta ?? mockProjectState.project_meta,
+          idea_core: state.idea_core ?? mockProjectState.idea_core,
+          idea_bible: state.idea_bible ?? mockProjectState.idea_bible,
+          beat_map: state.beat_map ?? mockProjectState.beat_map,
+          screenplay_scenes: state.screenplay_scenes ?? mockProjectState.screenplay_scenes,
+          shot_intents: state.shot_intents ?? mockProjectState.shot_intents,
+          export_packages: state.export_packages ?? mockProjectState.export_packages,
+          shot_runtimes: state.shot_runtimes ?? {},
+          active_shot_id: state.active_shot_id ?? null,
+        };
+
+        if (version < 2) {
+          return migratedState;
+        }
+
+        return migratedState;
+      },
       partialize: (state) => ({
         project_meta: state.project_meta,
         idea_core: state.idea_core,
@@ -198,6 +393,8 @@ export const useStoryStore = create<StoryStore>()(
         screenplay_scenes: state.screenplay_scenes,
         shot_intents: state.shot_intents,
         export_packages: state.export_packages,
+        shot_runtimes: state.shot_runtimes,
+        active_shot_id: state.active_shot_id,
       }),
     }
   )
