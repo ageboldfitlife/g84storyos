@@ -1,133 +1,156 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { useStoryStore } from '@/store/storyStore';
+import {
+  compileToolPromptPackage,
+  type CompiledRenderExport,
+  type ToolPromptTarget,
+} from '@/lib/tool-prompt-compiler';
+
+const TOOL_PROMPT_TARGETS: ToolPromptTarget[] = ['nano_banana', 'gpt_image', 'flux_basic'];
+
+function downloadJson(filename: string, payload: unknown) {
+  const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
+  const link = document.createElement('a');
+  link.setAttribute('href', dataStr);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function stringifyPrompt(prompt: unknown): string {
+  return typeof prompt === 'string' ? prompt : JSON.stringify(prompt, null, 2);
+}
 
 function ExportHubContent() {
-  const { shot_runtimes, active_shot_id, exportShotRenderPackage, markShotAsExported } = useStoryStore();
+  const { shot_runtimes, exportShotRenderPackage, markShotAsExported } = useStoryStore();
+  const [targetTool, setTargetTool] = useState<ToolPromptTarget>('flux_basic');
 
-  const activeShot = active_shot_id ? shot_runtimes[active_shot_id] : null;
+  const renderPackages = useMemo(() => {
+    return Object.values(shot_runtimes).reduce<Array<{ shotId: string; pkg: CompiledRenderExport }>>(
+      (packages, shot) => {
+        if (shot.P_Computed.generation_status !== 'generated') return packages;
 
-  const renderPackage = useMemo(() => {
-    if (activeShot && activeShot.P_Computed.generation_status === 'generated') {
-      try {
-        return exportShotRenderPackage(active_shot_id!, 'flux');
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
-  }, [activeShot, active_shot_id, exportShotRenderPackage]);
+        try {
+          const rawPackage = exportShotRenderPackage(shot.A_Identity.shot_id, 'flux');
+          packages.push({
+            shotId: shot.A_Identity.shot_id,
+            pkg: compileToolPromptPackage(rawPackage, targetTool),
+          });
+        } catch (error) {
+          console.error(`Cannot export package for ${shot.A_Identity.shot_id}:`, error);
+        }
 
-  if (!activeShot) {
-    return <div className="p-8 text-zinc-400">Không có Shot nào đang active. Hãy chọn từ T5.</div>;
-  }
+        return packages;
+      },
+      []
+    );
+  }, [exportShotRenderPackage, shot_runtimes, targetTool]);
 
-  const handleCopyPrompt = () => {
-    if (renderPackage) {
-      navigator.clipboard.writeText(renderPackage.positive_prompt);
-      alert('Đã copy Prompt!');
-    }
-  };
-
-  const handleDownloadJSON = () => {
-    if (renderPackage) {
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(renderPackage, null, 2));
-      const downloadAnchorNode = document.createElement('a');
-      downloadAnchorNode.setAttribute('href', dataStr);
-      downloadAnchorNode.setAttribute('download', `RenderPackage_${activeShot.A_Identity.shot_id}.json`);
-      document.body.appendChild(downloadAnchorNode);
-      downloadAnchorNode.click();
-      downloadAnchorNode.remove();
-    }
-  };
-
-  const handleMarkExported = () => {
-    markShotAsExported(activeShot.A_Identity.shot_id);
-    alert(`Đã chuyển trạng thái ${activeShot.A_Identity.shot_id} thành EXPORTED_FOR_RENDER`);
+  const handleDownloadAll = () => {
+    downloadJson('RenderPackages_ALL.json', renderPackages.map((item) => item.pkg));
   };
 
   return (
-    <div className="p-8 min-h-screen bg-zinc-950 text-zinc-100 font-mono">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="flex justify-between items-end border-b border-zinc-800 pb-4">
-          <div>
-            <h1 className="text-3xl font-bold text-yellow-500">T6 - Export Hub</h1>
-            <p className="text-zinc-400">Human-in-the-loop Production Packet</p>
-          </div>
-          <div className="text-right">
-            <div className="text-sm text-zinc-500">ACTIVE SHOT</div>
-            <div className="text-xl font-bold">{activeShot.A_Identity.shot_id}</div>
-            <div className="text-xs text-yellow-500 mt-1">
-              STATUS: {activeShot.Q_RenderState.export_status || 'DRAFT'}
+    <DashboardLayout>
+      <div className="min-h-screen bg-zinc-950 p-8 font-mono text-zinc-100">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <div className="flex flex-col gap-4 border-b border-zinc-800 pb-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-yellow-500">T6 - Tram xuat</h1>
+              <p className="text-zinc-400">
+                Xuat dual-layer JSON: raw render package va tool prompt package.
+              </p>
             </div>
-          </div>
-        </div>
-
-        {renderPackage ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Lệnh Sản Xuất */}
-            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-lg space-y-4">
-              <h2 className="text-xl font-semibold text-zinc-300 border-b border-zinc-800 pb-2">Production Packet</h2>
-
-              <div>
-                <label className="text-xs font-bold text-zinc-500">POSITIVE PROMPT (EN)</label>
-                <div className="bg-black p-3 rounded mt-1 text-sm text-green-400 break-words">
-                  {renderPackage.positive_prompt}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-zinc-500">NEGATIVE PROMPT</label>
-                <div className="bg-black p-3 rounded mt-1 text-sm text-red-400 break-words">
-                  {renderPackage.negative_prompt || 'N/A'}
-                </div>
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                <button onClick={handleCopyPrompt} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-sm font-bold transition">
-                  COPY PROMPT
-                </button>
-                <button onClick={handleDownloadJSON} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-sm font-bold transition">
-                  DOWNLOAD JSON
-                </button>
-              </div>
-            </div>
-
-            {/* Tracking & Workflow */}
-            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-lg space-y-4">
-              <h2 className="text-xl font-semibold text-zinc-300 border-b border-zinc-800 pb-2">Human Workflow</h2>
-
-              <ul className="text-sm text-zinc-400 space-y-2 mb-6">
-                <li>1. Xuất gói RenderPackage JSON.</li>
-                <li>2. Tải file JSON lên Google Drive.</li>
-                <li>3. Giao cho Artist nạp vào ComfyUI/Flux.</li>
-                <li>4. Nhận link ảnh trả về để QA.</li>
-              </ul>
-
-              <button
-                onClick={handleMarkExported}
-                className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-black rounded font-bold transition uppercase"
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <select
+                value={targetTool}
+                onChange={(event) => setTargetTool(event.target.value as ToolPromptTarget)}
+                className="rounded border border-zinc-700 bg-black px-4 py-3 text-sm font-bold text-zinc-100 outline-none focus:border-yellow-500"
               >
-                MARK AS EXPORTED
+                {TOOL_PROMPT_TARGETS.map((tool) => (
+                  <option key={tool} value={tool}>
+                    {tool}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleDownloadAll}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-yellow-600 px-5 py-3 font-bold text-black transition hover:bg-yellow-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                TAI TAT CA JSON
               </button>
             </div>
           </div>
-        ) : (
-          <div className="p-8 bg-zinc-900 border border-red-900 text-red-400 rounded text-center">
-            Shot này chưa được sinh Prompt hoặc bị Stale. Vui lòng quay lại T5 để Generate AI Prompt trước khi Export.
-          </div>
-        )}
+
+          {renderPackages.length === 0 ? (
+            <div className="rounded border border-red-900 bg-zinc-900 p-8 text-center text-red-400">
+              Chua co shot nao san sang xuat. Hay chay T4/T5 truoc.
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {renderPackages.map(({ shotId, pkg }) => (
+                <article key={shotId} className="rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+                  <div className="mb-4 flex flex-col gap-3 border-b border-zinc-800 pb-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-zinc-200">{shotId}</h2>
+                      <p className="text-xs text-zinc-500">
+                        {pkg.raw_render_package.scene_id} / {pkg.raw_render_package.episode_id} / {pkg.target_tool}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400">
+                        NEGATIVE PROFILE ACTIVE: REALISM_V1
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => navigator.clipboard.writeText(stringifyPrompt(pkg.tool_prompt_package.start_frame))}
+                        className="rounded bg-zinc-800 px-4 py-2 text-sm font-bold text-white transition hover:bg-zinc-700"
+                      >
+                        COPY START PROMPT
+                      </button>
+                      <button
+                        onClick={() => downloadJson(`RenderPackage_${shotId}.json`, pkg)}
+                        className="rounded bg-zinc-800 px-4 py-2 text-sm font-bold text-white transition hover:bg-zinc-700"
+                      >
+                        TAI JSON
+                      </button>
+                      <button
+                        onClick={() => markShotAsExported(shotId)}
+                        className="rounded bg-yellow-600 px-4 py-2 text-sm font-bold text-black transition hover:bg-yellow-500"
+                      >
+                        DANH DAU DA XUAT
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <div className="mb-2 text-xs font-bold text-zinc-500">START FRAME TOOL PROMPT</div>
+                      <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded bg-black p-3 font-mono text-sm leading-6 text-green-400">
+                        {stringifyPrompt(pkg.tool_prompt_package.start_frame)}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="mb-2 text-xs font-bold text-zinc-500">END FRAME TOOL PROMPT</div>
+                      <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded bg-black p-3 font-mono text-sm leading-6 text-red-400">
+                        {stringifyPrompt(pkg.tool_prompt_package.end_frame)}
+                      </pre>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
 
 export default function ExportHubPage() {
-  return (
-    <DashboardLayout>
-      <ExportHubContent />
-    </DashboardLayout>
-  );
+  return <ExportHubContent />;
 }
