@@ -22,31 +22,31 @@ export default function ShotRuntimeSandbox() {
 
   const handleLoadMockShot = () => {
     addShotRuntime(HV_TEST_HERO_001);
-    setLastAction(`Loaded ${HV_TEST_HERO_001.A_Identity.shot_id}`);
+    setLastAction(`Đã nạp ${HV_TEST_HERO_001.A_Identity.shot_id}`);
   };
 
   const handleGeneratePrompt = () => {
     if (!activeShotId) {
-      setLastAction('No active shot loaded.');
+      setLastAction('Chưa có shot đang chọn.');
       return;
     }
 
     generateShotPrompt(activeShotId);
-    setLastAction(`Generated prompt for ${activeShotId}`);
+    setLastAction(`Đã sinh lời nhắc cho ${activeShotId}`);
   };
 
   const handleExportPackage = () => {
     if (!activeShotId) {
-      setLastAction('No active shot loaded.');
+      setLastAction('Chưa có shot đang chọn.');
       return;
     }
 
     try {
       const pkg = exportShotRenderPackage(activeShotId, 'flux');
       console.log('RenderPackage:', pkg);
-      setLastAction(`Exported flux package for ${activeShotId}. Check console.`);
+      setLastAction(`Đã xuất gói render cho ${activeShotId}. Kiểm tra console.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown export error';
+      const message = error instanceof Error ? error.message : 'Lỗi xuất gói không xác định';
       console.error(error);
       setLastAction(message);
     }
@@ -56,9 +56,9 @@ export default function ShotRuntimeSandbox() {
     <section className="mx-auto max-w-5xl space-y-4 rounded border border-slate-700 bg-slate-950 p-4 text-slate-100">
       <div className="flex flex-col gap-2 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Shot Runtime Sandbox</h2>
+          <h2 className="text-lg font-semibold">Khu kiểm thử Shot Runtime</h2>
           <p className="text-sm text-slate-400">
-            Active shot: {activeShotId ?? 'none'}
+            Shot đang chọn: {activeShotId ?? 'chưa có'}
           </p>
         </div>
 
@@ -68,7 +68,7 @@ export default function ShotRuntimeSandbox() {
             onClick={handleLoadMockShot}
             className="rounded bg-cyan-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400"
           >
-            Load Mock Shot
+            Nạp shot mẫu
           </button>
           <button
             type="button"
@@ -76,7 +76,7 @@ export default function ShotRuntimeSandbox() {
             disabled={!activeShotId}
             className="rounded bg-emerald-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
           >
-            Generate Prompt
+            Sinh lời nhắc
           </button>
           <button
             type="button"
@@ -84,7 +84,7 @@ export default function ShotRuntimeSandbox() {
             disabled={!activeShotId}
             className="rounded bg-amber-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
           >
-            Export Package
+            Xuất gói
           </button>
         </div>
       </div>
@@ -101,13 +101,13 @@ export default function ShotRuntimeSandbox() {
             P_Computed.prompt_text_en
           </h3>
           <pre className="min-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-900 p-3 text-sm leading-6 text-slate-100">
-            {promptText ?? 'Prompt has not been generated yet.'}
+            {promptText ?? 'Chưa sinh lời nhắc.'}
           </pre>
         </div>
 
         <div className="space-y-2">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Assembly Warnings
+            Cảnh báo lắp ghép
           </h3>
           <div className="min-h-48 rounded bg-slate-900 p-3 text-sm text-slate-100">
             {warnings.length > 0 ? (
@@ -117,7 +117,7 @@ export default function ShotRuntimeSandbox() {
                 ))}
               </ul>
             ) : (
-              <p className="text-slate-500">No warnings.</p>
+              <p className="text-slate-500">Không có cảnh báo.</p>
             )}
           </div>
         </div>

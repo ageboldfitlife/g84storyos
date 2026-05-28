@@ -12,8 +12,8 @@ import Icon from '@/components/ui/AppIcon';
 const NAV_ITEMS = [
   {
     id: 'nav-idea-lab',
-    label: 'Idea Lab',
-    shortLabel: 'Lab',
+    label: 'Phòng Ý Tưởng',
+    shortLabel: 'Ý Tưởng',
     href: '/',
     icon: Lightbulb,
     tabNumber: 1,
@@ -21,8 +21,8 @@ const NAV_ITEMS = [
   },
   {
     id: 'nav-idea-bible',
-    label: 'Idea Bible',
-    shortLabel: 'Bible',
+    label: 'Hồ Sơ Thế Giới',
+    shortLabel: 'Hồ Sơ',
     href: '/idea-bible',
     icon: BookOpen,
     tabNumber: 2,
@@ -30,8 +30,8 @@ const NAV_ITEMS = [
   },
   {
     id: 'nav-beat-map',
-    label: 'Beat Map',
-    shortLabel: 'Beats',
+    label: 'Bản Đồ Nhịp',
+    shortLabel: 'Nhịp',
     href: '/beat-map',
     icon: LayoutGrid,
     tabNumber: 3,
@@ -39,8 +39,8 @@ const NAV_ITEMS = [
   },
   {
     id: 'nav-screenplay',
-    label: 'Screenplay',
-    shortLabel: 'Script',
+    label: 'Kịch Bản',
+    shortLabel: 'Kịch Bản',
     href: '/screenplay',
     icon: FileText,
     tabNumber: 4,
@@ -48,8 +48,8 @@ const NAV_ITEMS = [
   },
   {
     id: 'nav-shot-intent',
-    label: 'Shot Intent',
-    shortLabel: 'Shots',
+    label: 'Ý Đồ Shot',
+    shortLabel: 'Shot',
     href: '/shot-intent',
     icon: Camera,
     tabNumber: 5,
@@ -57,8 +57,8 @@ const NAV_ITEMS = [
   },
   {
     id: 'nav-export-hub',
-    label: 'Export Hub',
-    shortLabel: 'Export',
+    label: 'Trạm Xuất',
+    shortLabel: 'Xuất',
     href: '/export-hub',
     icon: Package,
     tabNumber: 6,
@@ -163,7 +163,7 @@ export default function Sidebar() {
       {/* Nav Items */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto overflow-x-hidden">
         {!collapsed && (
-          <p className="panel-header px-2 pb-2">Modules</p>
+          <p className="panel-header px-2 pb-2">Mô-đun</p>
         )}
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;

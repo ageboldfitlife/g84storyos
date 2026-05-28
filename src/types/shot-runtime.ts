@@ -64,6 +64,9 @@ export interface SectionE_Motion {
   movement_end: string;
   micro_action: string;
   forbidden_motion: string[];
+  start_frame_prompt?: string;
+  end_frame_prompt?: string;
+  motion_intent?: string;
 }
 
 export interface SectionF_EditorHandles {
@@ -92,6 +95,8 @@ export interface SectionG_Camera {
   movement: string;
   depth_of_field: string;
   camera_intent: string;
+  contrast_level?: string;
+  cut_hook?: string;
 }
 
 export interface SectionH_Spatial {
@@ -102,6 +107,10 @@ export interface SectionH_Spatial {
   planes_bg: string;
   topology_rules: string;
   negative_space_rules: string;
+  spatial_seed?: string;
+  environment_hash?: string;
+  physics_frozen_state?: string;
+  imperfections?: string[];
 }
 
 export interface SectionI_Character {
@@ -111,6 +120,14 @@ export interface SectionI_Character {
   signature_prop: string;
   behavior_lock: string;
   forbidden: string[];
+  char_refs?: string[];
+  visual_lock_refs?: string[];
+  wardrobe_lock?: string;
+  continuity_lock?: string;
+  missing_character_refs?: string[];
+  micro_details?: string[];
+  emotional_posture?: string;
+  behavior_memory?: string;
 }
 
 export interface SectionJ_Props {

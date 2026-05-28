@@ -16,11 +16,44 @@ function resolveShotType(shotTypes: string[]): ShotType {
   return FALLBACK_SHOT_TYPE;
 }
 
+interface ParsedScreenplayShot {
+  shotNumber: number;
+  shotLabel: string;
+  envId: string;
+  rawText: string;
+}
+
+function parseScreenplayShots(screenplayText: string): ParsedScreenplayShot[] {
+  return screenplayText
+    .split(/(?=SHOT\s+\d+\s+\u2014\s+ENV_[A-Z0-9_]+)/g)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .reduce<ParsedScreenplayShot[]>((shots, rawText) => {
+      const metadataMatch = rawText.match(/SHOT\s+(\d+)\s+\u2014\s+(ENV_[A-Z0-9_]+)/i);
+
+      if (!metadataMatch) {
+        return shots;
+      }
+
+      const shotNumber = Number(metadataMatch[1]);
+
+      shots.push({
+        shotNumber,
+        shotLabel: `SHOT ${metadataMatch[1].padStart(2, '0')}`,
+        envId: metadataMatch[2].toUpperCase(),
+        rawText,
+      });
+
+      return shots;
+    }, []);
+}
+
 export function generateShotsFromPattern(
   projectId: string,
   episodeId: string,
   sceneId: string,
-  patternId: string
+  patternId: string,
+  screenplayText = ''
 ): ShotRuntime[] {
   const pattern = OpeningPatternsDict[patternId];
 
@@ -29,10 +62,26 @@ export function generateShotsFromPattern(
   }
 
   const now = new Date().toISOString();
+  const screenplayShots = parseScreenplayShots(screenplayText);
+  const runtimeInputs =
+    screenplayShots.length > 0
+      ? screenplayShots
+      : [
+          {
+            shotNumber: 1,
+            shotLabel: 'SHOT 01',
+            envId: sceneId,
+            rawText: screenplayText,
+          },
+        ];
+  const patternHint = pattern.sequence[0];
+  const fallbackShotType = resolveShotType(patternHint?.allowed_shot_types ?? [FALLBACK_SHOT_TYPE]);
+  const fallbackDuration = patternHint?.min_handle_sec ?? 1;
+  const fallbackHandleDistribution = patternHint?.handle_distribution ?? 'both_ends';
 
-  return pattern.sequence.map((position, index) => {
-    const shotType = resolveShotType(position.allowed_shot_types);
-    const shotId = `${sceneId}_${position.position.toString().padStart(3, '0')}`;
+  return runtimeInputs.map((screenplayShot, index) => {
+    const shotType = fallbackShotType;
+    const shotId = `${sceneId}_${screenplayShot.shotNumber.toString().padStart(3, '0')}`;
 
     return {
       A_Identity: {
@@ -44,7 +93,7 @@ export function generateShotsFromPattern(
         shot_type: shotType,
         priority: 'B',
         version: 'v1.0',
-        title: `${pattern.pattern_id} ${shotType} ${position.position}`,
+        title: `${screenplayShot.shotLabel} ${screenplayShot.envId}`,
         created_at: now,
         updated_at: now,
       },
@@ -57,7 +106,7 @@ export function generateShotsFromPattern(
       },
       C_PatternRef: {
         scene_pattern_id: pattern.pattern_id,
-        position_in_pattern: position.position,
+        position_in_pattern: screenplayShot.shotNumber,
         pattern_rules_apply: true,
         override_reason: null,
         time_budget_compliance: {
@@ -88,21 +137,24 @@ export function generateShotsFromPattern(
         movement_middle: '',
         movement_end: '',
         micro_action: '',
+        start_frame_prompt: '',
+        end_frame_prompt: '',
+        motion_intent: '',
         forbidden_motion: pattern.forbidden_camera_movements,
       },
       F_EditorHandles: {
-        duration_target_sec: position.min_handle_sec,
-        duration_handle_sec: position.min_handle_sec,
-        duration_render_sec: position.min_handle_sec,
+        duration_target_sec: fallbackDuration,
+        duration_handle_sec: fallbackDuration,
+        duration_render_sec: fallbackDuration,
         ai_generation_chunk_sec: null,
         usable_range_suggested: {
           start_sec: 0,
-          end_sec: position.min_handle_sec,
+          end_sec: fallbackDuration,
           note: null,
         },
-        handle_distribution: position.handle_distribution,
+        handle_distribution: fallbackHandleDistribution,
         cut_in_point_suggested_sec: 0,
-        cut_out_point_suggested_sec: position.min_handle_sec,
+        cut_out_point_suggested_sec: fallbackDuration,
         freeze_frame_allowed: false,
         handle_notes: null,
       },
@@ -117,7 +169,7 @@ export function generateShotsFromPattern(
         camera_intent: '',
       },
       H_Spatial: {
-        env_id: '',
+        env_id: screenplayShot.envId,
         location: '',
         planes_fg: '',
         planes_mg: '',
@@ -229,7 +281,7 @@ export function generateShotsFromPattern(
         render_result_url: null,
       },
       R_QAState: {
-        qa_status: 'PASS',
+        qa_status: 'PENDING',
         checks: {
           face: null,
           hand: null,

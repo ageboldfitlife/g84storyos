@@ -1,312 +1,276 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { HV_TEST_HERO_001 } from '@/mock/shotData';
 import { useStoryStore } from '@/store/storyStore';
-import type { QAReport } from '@/lib/qa-checker';
+import { isRuntimeExportReady } from '@/lib/runtime-validator';
 import type { ShotRuntime } from '@/types/shot-runtime';
 
-type QAReviewCheck = 'face' | 'hand' | 'outfit' | 'prop' | 'topology' | 'lighting' | 'continuity';
+type ProductionStatus = 'NOT_GENERATED' | 'GENERATED' | 'QA_PASS' | 'FAILED';
 
-const QA_REVIEW_CHECKS: Array<{ key: QAReviewCheck; label: string }> = [
-  { key: 'face', label: 'Face (Mặt)' },
-  { key: 'hand', label: 'Hand (Tay)' },
-  { key: 'outfit', label: 'Outfit (Trang phục)' },
-  { key: 'prop', label: 'Prop (Đạo cụ)' },
-  { key: 'topology', label: 'Topology (Không gian)' },
-  { key: 'lighting', label: 'Lighting/DNA (Ánh sáng)' },
-  { key: 'continuity', label: 'Continuity (Rắc-co)' },
-];
+function getShotSortKey(shot: ShotRuntime): string {
+  return `${shot.A_Identity.scene_id}_${shot.A_Identity.shot_index
+    .toString()
+    .padStart(4, '0')}_${shot.A_Identity.shot_id}`;
+}
 
-function ShotQAReviewForm({ shot }: { shot: ShotRuntime }) {
-  const updateShotRuntime = useStoryStore((state) => state.updateShotRuntime);
-  const applyShotQAReport = useStoryStore((state) => state.applyShotQAReport);
-  const [renderResultUrl, setRenderResultUrl] = useState(shot.Q_RenderState.render_result_url ?? '');
-  const [issuesText, setIssuesText] = useState(shot.R_QAState.issues.join(', '));
-  const [checks, setChecks] = useState<Record<QAReviewCheck, boolean>>({
-    face: true,
-    hand: true,
-    outfit: true,
-    prop: true,
-    topology: true,
-    lighting: true,
-    continuity: true,
-  });
+function sortShotsByTimeline(shots: ShotRuntime[]): ShotRuntime[] {
+  return [...shots].sort((a, b) => getShotSortKey(a).localeCompare(getShotSortKey(b)));
+}
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
+function getProductionStatus(shot: ShotRuntime): ProductionStatus {
+  if (shot.Q_RenderState.status === 'FAILED' || shot.R_QAState.qa_status === 'FAIL') {
+    return 'FAILED';
+  }
 
-    const shotId = shot.A_Identity.shot_id;
-    const issues = issuesText
-      .split(',')
-      .map((issue) => issue.trim())
-      .filter(Boolean);
+  if (isRuntimeExportReady(shot)) {
+    return 'QA_PASS';
+  }
 
-    updateShotRuntime(shotId, {
-      Q_RenderState: {
-        ...shot.Q_RenderState,
-        render_result_url: renderResultUrl.trim() || null,
-      },
-    });
+  if (shot.P_Computed.generation_status === 'generated' || shot.Q_RenderState.export_status === 'GENERATED') {
+    return 'GENERATED';
+  }
 
-    const report: QAReport = {
-      face: checks.face,
-      hand: checks.hand,
-      outfit: checks.outfit,
-      prop: checks.prop,
-      topology: checks.topology,
-      lighting: checks.lighting,
-      motion: true,
-      json: true,
-      continuity: checks.continuity,
-      issues,
-      reviewer: 'director',
-    };
+  return 'NOT_GENERATED';
+}
 
-    applyShotQAReport(shotId, report);
-  };
+function getStatusBadge(status: ProductionStatus): { label: string; className: string } {
+  switch (status) {
+    case 'QA_PASS':
+      return { label: 'READY', className: 'border-green-700 bg-green-950 text-green-300' };
+    case 'GENERATED':
+      return { label: 'HYDRATED', className: 'border-blue-700 bg-blue-950 text-blue-300' };
+    case 'FAILED':
+      return { label: 'FAILED', className: 'border-red-700 bg-red-950 text-red-300' };
+    case 'NOT_GENERATED':
+    default:
+      return { label: 'SKELETON', className: 'border-gray-700 bg-gray-900 text-gray-400' };
+  }
+}
+
+function hasMotionRuntime(shot: ShotRuntime): boolean {
+  return isRuntimeExportReady(shot);
+}
+
+function getStartFrameText(shot: ShotRuntime): string {
+  return shot.E_Motion.start_frame_prompt || shot.D_Frames.start_frame.description || 'No start frame data.';
+}
+
+function getMotionText(shot: ShotRuntime): string {
+  return shot.E_Motion.motion_intent || shot.E_Motion.main_action || 'No motion intent data.';
+}
+
+function getEndFrameText(shot: ShotRuntime): string {
+  return shot.E_Motion.end_frame_prompt || shot.D_Frames.end_frame.description || 'No end frame data.';
+}
+
+function groupShotsByScene(shots: ShotRuntime[]): Record<string, ShotRuntime[]> {
+  return sortShotsByTimeline(shots).reduce<Record<string, ShotRuntime[]>>((groups, shot) => {
+    const sceneId = shot.A_Identity.scene_id;
+    groups[sceneId] = [...(groups[sceneId] ?? []), shot];
+    return groups;
+  }, {});
+}
+
+function ShotLane({
+  shot,
+  previousShotId,
+  nextShotId,
+}: {
+  shot: ShotRuntime;
+  previousShotId: string | null;
+  nextShotId: string | null;
+}) {
+  const setActiveShot = useStoryStore((state) => state.setActiveShot);
+  const activeShotId = useStoryStore((state) => state.active_shot_id);
+  const status = getProductionStatus(shot);
+  const statusBadge = getStatusBadge(status);
+  const isHydrated = status === 'GENERATED' || status === 'QA_PASS';
+  const isReadyForExport = status === 'QA_PASS' && hasMotionRuntime(shot);
+  const isActive = activeShotId === shot.A_Identity.shot_id;
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      onClick={(event) => event.stopPropagation()}
-      className="space-y-3 rounded border border-zinc-800 bg-zinc-950 p-3"
+    <article
+      onClick={() => setActiveShot(shot.A_Identity.shot_id)}
+      className={`w-full border p-4 ${
+        isActive ? 'border-yellow-700 bg-black' : 'border-gray-800 bg-zinc-950'
+      }`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-amber-300">
-          QA Review Form
-        </div>
-        <span
-          className={`rounded px-2 py-1 text-xs font-semibold uppercase tracking-wide ${
-            shot.R_QAState.qa_status === 'PASS'
-              ? 'bg-emerald-500/15 text-emerald-300'
-              : shot.R_QAState.qa_status === 'FAIL'
-                ? 'bg-red-500/15 text-red-300'
-                : shot.R_QAState.qa_status === 'NEED_FIX'
-                  ? 'bg-amber-500/15 text-amber-300'
-                  : 'bg-zinc-800 text-zinc-400'
-          }`}
-        >
-          {shot.R_QAState.qa_status}
-        </span>
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-xs text-zinc-500">Render result URL</span>
-        <input
-          value={renderResultUrl}
-          onChange={(event) => setRenderResultUrl(event.target.value)}
-          placeholder="https://drive.google.com/..."
-          className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none focus:border-amber-500/70"
-        />
-      </label>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        {QA_REVIEW_CHECKS.map((check) => (
-          <label
-            key={check.key}
-            className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900 px-2 py-2 text-xs text-zinc-300"
-          >
-            <input
-              type="checkbox"
-              checked={checks[check.key]}
-              onChange={(event) =>
-                setChecks((current) => ({ ...current, [check.key]: event.target.checked }))
-              }
-              className="h-4 w-4 accent-amber-500"
-            />
-            {check.label}
-          </label>
-        ))}
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-xs text-zinc-500">Issues, phân cách bằng dấu phẩy</span>
-        <input
-          value={issuesText}
-          onChange={(event) => setIssuesText(event.target.value)}
-          placeholder="tay sai, ánh sáng lệch DNA..."
-          className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none focus:border-amber-500/70"
-        />
-      </label>
-
-      <button
-        type="submit"
-        className="w-full rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-300 transition hover:bg-amber-500/20"
-      >
-        Submit QA Report
-      </button>
-
-      {shot.R_QAState.fix_instructions.length > 0 && (
-        <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Fix Instructions
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-sm font-semibold text-gray-100">
+              {shot.A_Identity.shot_id}
+            </span>
+            <span className="border border-gray-700 bg-black px-2 py-1 text-xs text-gray-300">
+              {shot.A_Identity.shot_type}
+            </span>
+            <span className={`border px-2 py-1 text-xs font-semibold ${statusBadge.className}`}>
+              [{statusBadge.label}]
+            </span>
           </div>
-          <ul className="list-disc space-y-1 pl-4 text-xs leading-5 text-zinc-300">
-            {shot.R_QAState.fix_instructions.map((instruction) => (
-              <li key={instruction}>{instruction}</li>
-            ))}
-          </ul>
+          <div className="mt-2 text-xs text-gray-500">
+            Prev: {previousShotId ?? 'NONE'} | Next: {nextShotId ?? 'NONE'}
+          </div>
+        </div>
+
+        {isReadyForExport && (
+          <span className="shrink-0 border border-green-700 bg-green-950 px-2 py-1 text-xs font-semibold text-green-300">
+            [READY FOR EXPORT]
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 text-sm text-gray-300">{shot.A_Identity.title}</div>
+      <div className="mt-1 text-xs text-gray-500">{shot.B_Narrative.narrative_intent}</div>
+
+      {isHydrated && (
+        <div className="mt-4 flex flex-col gap-3">
+          <section>
+            <div className="mb-1 text-xs font-semibold text-gray-500">[ S ] START FRAME</div>
+            <div className="max-h-28 overflow-y-auto bg-gray-900 p-2 text-sm leading-6 text-gray-300">
+              {getStartFrameText(shot)}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-1 text-xs font-semibold text-gray-500">[ M ] MOTION INTENT</div>
+            <div className="max-h-28 overflow-y-auto border-l-2 border-yellow-600 bg-gray-900 p-2 text-sm leading-6 text-gray-300">
+              {getMotionText(shot)}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-1 text-xs font-semibold text-gray-500">[ E ] END FRAME</div>
+            <div className="max-h-28 overflow-y-auto bg-gray-900 p-2 text-sm leading-6 text-gray-300">
+              {getEndFrameText(shot)}
+            </div>
+          </section>
         </div>
       )}
-    </form>
+    </article>
+  );
+}
+
+function TimelineScene({
+  sceneId,
+  shots,
+}: {
+  sceneId: string;
+  shots: ShotRuntime[];
+}) {
+  const sortedShots = sortShotsByTimeline(shots);
+
+  return (
+    <section className="flex flex-col">
+      <header className="sticky top-0 z-10 border-b border-gray-700 bg-black/95 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="font-mono text-base font-semibold text-gray-100">
+            {sceneId} - {sortedShots.length} SHOTS
+          </h2>
+          <span className="text-xs text-gray-500">PRODUCTION TIMELINE</span>
+        </div>
+      </header>
+
+      <div className="flex flex-col gap-3 py-4">
+        {sortedShots.map((shot, index) => (
+          <ShotLane
+            key={shot.A_Identity.shot_id}
+            shot={shot}
+            previousShotId={sortedShots[index - 1]?.A_Identity.shot_id ?? null}
+            nextShotId={sortedShots[index + 1]?.A_Identity.shot_id ?? null}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
 function ShotIntentPageContent() {
   const shotRuntimes = useStoryStore((state) => state.shot_runtimes);
-  const activeShotId = useStoryStore((state) => state.active_shot_id);
-  const addShotRuntime = useStoryStore((state) => state.addShotRuntime);
-  const setActiveShot = useStoryStore((state) => state.setActiveShot);
-  const generateShotPrompt = useStoryStore((state) => state.generateShotPrompt);
-  const applyCinematicPattern = useStoryStore((state) => state.applyCinematicPattern);
 
   const shots = useMemo(() => Object.values(shotRuntimes), [shotRuntimes]);
-
-  useEffect(() => {
-    if (shots.length === 0) {
-      addShotRuntime(HV_TEST_HERO_001);
-    }
-  }, [addShotRuntime, shots.length]);
-
-  const promptGeneratedCount = shots.filter(
-    (shot) => shot.P_Computed.generation_status === 'generated'
-  ).length;
+  const heroShots = useMemo(
+    () => sortShotsByTimeline(shots.filter((shot) => shot.A_Identity.shot_type === 'HERO')),
+    [shots]
+  );
+  const sceneGroups = useMemo(
+    () => groupShotsByScene(shots.filter((shot) => shot.A_Identity.shot_type !== 'HERO')),
+    [shots]
+  );
+  const sceneIds = useMemo(() => Object.keys(sceneGroups).sort(), [sceneGroups]);
+  const skeletonCount = shots.filter((shot) => getProductionStatus(shot) === 'NOT_GENERATED').length;
+  const readyCount = shots.filter((shot) => getProductionStatus(shot) === 'QA_PASS').length;
+  const failedCount = shots.filter((shot) => getProductionStatus(shot) === 'FAILED').length;
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <header className="flex flex-col gap-4 border-b border-zinc-800 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
-                T5
-              </span>
-              <span className="rounded border border-zinc-700 px-2 py-1 text-xs font-medium uppercase tracking-wide text-zinc-400">
-                Shot Runtime Live
-              </span>
+    <main className="min-h-screen bg-zinc-950 text-gray-100">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pb-24 pt-6">
+        <header className="border-b border-gray-800 pb-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="mb-2 text-xs font-semibold text-yellow-500">T5 / ASSISTANT DIRECTOR WALL</div>
+              <h1 className="text-2xl font-semibold text-gray-100">T5 - Shot Intent</h1>
+              <p className="mt-2 text-sm text-gray-500">
+                Timeline đọc theo trục dọc. Hero shot tách riêng. Production shots group theo scene.
+              </p>
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-              T5 - Shot Intent
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              Quản lý danh sách Shot Runtime đã được nạp vào Store. Màn hình này chỉ đọc dữ liệu và kiểm tra trạng thái prompt.
-            </p>
-          </div>
 
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={() => applyCinematicPattern('SC01', 'OPEN_E01_MYSTERY')}
-              className="w-full rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-amber-300 transition hover:bg-amber-500/20"
-            >
-              APPLY OPENING PATTERN
-            </button>
-
-            <div className="grid grid-cols-3 gap-2 text-right">
-              <div className="rounded border border-zinc-800 bg-zinc-900 px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-zinc-500">Shots</div>
-                <div className="mt-1 text-xl font-semibold text-zinc-50">{shots.length}</div>
-              </div>
-              <div className="rounded border border-zinc-800 bg-zinc-900 px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-zinc-500">Prompt</div>
-                <div className="mt-1 text-xl font-semibold text-amber-300">{promptGeneratedCount}</div>
-              </div>
-              <div className="rounded border border-zinc-800 bg-zinc-900 px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-zinc-500">Active</div>
-                <div className="mt-1 truncate text-sm font-semibold text-zinc-200">
-                  {activeShotId ?? 'none'}
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="border border-gray-700 bg-black px-3 py-2 text-gray-300">
+                TOTAL: {shots.length}
+              </span>
+              <span className="border border-gray-700 bg-gray-900 px-3 py-2 text-gray-400">
+                SKELETON: {skeletonCount}
+              </span>
+              <span className="border border-green-700 bg-green-950 px-3 py-2 text-green-300">
+                READY: {readyCount}
+              </span>
+              <span className="border border-red-700 bg-red-950 px-3 py-2 text-red-300">
+                FAILED: {failedCount}
+              </span>
             </div>
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {shots.map((shot) => {
-            const identity = shot.A_Identity;
-            const promptStatus = shot.P_Computed.generation_status;
-            const isActive = activeShotId === identity.shot_id;
-            const isGenerated = promptStatus === 'generated' || promptStatus === 'locked';
-            const canShowQAForm = shot.Q_RenderState.status === 'EXPORTED_FOR_HUMAN_RENDER' || isGenerated;
+        <section className="flex flex-col border border-gray-800 bg-black">
+          <header className="border-b border-gray-700 bg-black px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-mono text-base font-semibold text-yellow-500">
+                GLOBAL HERO SHOTS
+              </h2>
+              <span className="text-xs text-gray-500">{heroShots.length} HERO</span>
+            </div>
+          </header>
 
-            return (
-              <article
-                key={identity.shot_id}
-                onClick={() => setActiveShot(identity.shot_id)}
-                className={`rounded border p-4 text-left transition ${
-                  isActive
-                    ? 'border-amber-500/70 bg-amber-500/10'
-                    : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'
-                }`}
-              >
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-mono text-sm font-semibold text-zinc-100">
-                      {identity.shot_id}
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {identity.episode_id} / {identity.scene_id} / Index {identity.shot_index}
-                    </div>
-                  </div>
-                  <span className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs font-semibold text-zinc-300">
-                    {identity.shot_type}
-                  </span>
-                </div>
+          <div className="flex flex-col gap-3 p-4">
+            {heroShots.length > 0 ? (
+              heroShots.map((shot, index) => (
+                <ShotLane
+                  key={shot.A_Identity.shot_id}
+                  shot={shot}
+                  previousShotId={heroShots[index - 1]?.A_Identity.shot_id ?? null}
+                  nextShotId={heroShots[index + 1]?.A_Identity.shot_id ?? null}
+                />
+              ))
+            ) : (
+              <div className="border border-gray-800 bg-zinc-950 p-4 text-sm text-gray-500">
+                No global hero shots.
+              </div>
+            )}
+          </div>
+        </section>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs uppercase tracking-wide text-zinc-500">
-                      AI Prompt
-                    </span>
-                    <span
-                      className={`rounded px-2 py-1 text-xs font-semibold uppercase tracking-wide ${
-                        isGenerated
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : 'bg-zinc-800 text-zinc-400'
-                      }`}
-                    >
-                      {promptStatus}
-                    </span>
-                  </div>
-
-                  <div className="text-sm font-medium text-zinc-200">{identity.title}</div>
-                  <div className="line-clamp-2 text-xs leading-5 text-zinc-500">
-                    {shot.B_Narrative.narrative_intent}
-                  </div>
-
-                  {promptStatus === 'not_generated' && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        generateShotPrompt(identity.shot_id);
-                        setActiveShot(identity.shot_id);
-                      }}
-                      className="w-full rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-300 transition hover:bg-amber-500/20"
-                    >
-                      Generate AI Prompt
-                    </button>
-                  )}
-
-                  {promptStatus === 'generated' && shot.P_Computed.prompt_text_en && (
-                    <div className="rounded border border-zinc-800 bg-zinc-950 p-3">
-                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-300">
-                        Prompt Text
-                      </div>
-                      <p className="line-clamp-6 text-xs leading-5 text-zinc-300">
-                        {shot.P_Computed.prompt_text_en}
-                      </p>
-                    </div>
-                  )}
-
-                  {canShowQAForm && <ShotQAReviewForm shot={shot} />}
-                </div>
-              </article>
-            );
-          })}
+        <section className="flex flex-col gap-6">
+          {sceneIds.length > 0 ? (
+            sceneIds.map((sceneId) => (
+              <TimelineScene key={sceneId} sceneId={sceneId} shots={sceneGroups[sceneId]} />
+            ))
+          ) : (
+            <div className="border border-gray-800 bg-black p-4 text-sm text-gray-500">
+              No scene production shots.
+            </div>
+          )}
         </section>
       </div>
     </main>

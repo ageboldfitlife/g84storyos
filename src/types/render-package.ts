@@ -4,13 +4,15 @@ export interface RenderPackage {
   episode_id: string;
   scene_id: string;
 
-  target_tool: "flux" | "midjourney" | "comfyui" | "sora" | "kling";
-  render_duration_sec: number;
-  chunk_size_sec: number | null;
+  aspect_ratio: string;
+  duration_target_sec: number;
+  ai_generation_chunk_sec: number;
 
   positive_prompt: string;
   negative_prompt: string;
-  tool_specific_payload: any;
+  start_frame_prompt?: string;
+  motion_intent?: string;
+  end_frame_prompt?: string;
 
   reference_images: {
     face_ref: string | null;

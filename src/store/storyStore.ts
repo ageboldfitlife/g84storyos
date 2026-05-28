@@ -14,14 +14,14 @@ import type {
 import type { ShotRuntime } from '@/types/shot-runtime';
 import type { RenderPackage } from '@/types/render-package';
 import { generatePrompt } from '@/lib/prompt-engine';
-import { exportRenderPackage } from '@/lib/mapper';
+import { exportRenderPackage, type RenderTargetTool } from '@/lib/mapper';
 import { validateRenderPackage, type ValidationResult } from '@/lib/validator';
 import { processQAResult, type QAReport } from '@/lib/qa-checker';
 import { generateShotsFromPattern } from '@/lib/shot-generator';
 import { hydrateShotsWithScreenplay } from '@/lib/shot-hydrator';
+import { isRuntimeExportReady } from '@/lib/runtime-validator';
+import { injectPreProductionRuntime } from '@/lib/preproduction-injector';
 import { mockProjectState } from '@/mock/storyData';
-
-type RenderTargetTool = RenderPackage['target_tool'];
 
 type PersistedStoryState = Pick<
   StoryProjectState,
@@ -70,13 +70,14 @@ interface StoryStore extends StoryProjectState {
   updateShotRuntime: (shotId: string, updates: Partial<ShotRuntime>) => void;
   setActiveShot: (shotId: string | null) => void;
   removeShotRuntime: (shotId: string) => void;
+  clearShotRuntime: () => void;
 
   // Shot Runtime command actions
   generateShotPrompt: (shotId: string) => void;
   exportShotRenderPackage: (shotId: string, targetTool: RenderTargetTool) => RenderPackage;
   validateShotRenderPackage: (pkg: RenderPackage) => ValidationResult;
   applyShotQAReport: (shotId: string, report: QAReport) => void;
-  applyCinematicPattern: (sceneId: string, patternId: string, screenplayText?: string) => void;
+  applyCinematicPattern: (sceneId: string, patternId: string, screenplayText?: string) => Promise<void>;
   markShotAsExported: (shotId: string) => void;
 
   // Utility
@@ -255,6 +256,12 @@ export const useStoryStore = create<StoryStore>()(
           };
         }),
 
+      clearShotRuntime: () =>
+        set(() => ({
+          shot_runtimes: {},
+          active_shot_id: null,
+        })),
+
       generateShotPrompt: (shotId) =>
         set((state) => {
           const shot = state.shot_runtimes[shotId];
@@ -302,7 +309,7 @@ export const useStoryStore = create<StoryStore>()(
           };
         }),
 
-      applyCinematicPattern: (sceneId, patternId, screenplayText = '') => {
+      applyCinematicPattern: async (sceneId, patternId, screenplayText = '') => {
         const state = get();
         const activeShot = state.active_shot_id ? state.shot_runtimes[state.active_shot_id] : null;
         const episodeId = activeShot?.A_Identity.episode_id ?? 'E01';
@@ -310,12 +317,58 @@ export const useStoryStore = create<StoryStore>()(
           state.project_meta.id,
           episodeId,
           sceneId,
-          patternId
+          patternId,
+          screenplayText
         );
-        const hydratedShots = hydrateShotsWithScreenplay(skeletonShots, screenplayText);
+        const hydratedShots = await hydrateShotsWithScreenplay(skeletonShots, screenplayText);
+        const file15RuntimeShots = hydratedShots.map((shot) => injectPreProductionRuntime(shot));
 
-        hydratedShots.forEach((shot) => {
-          get().addShotRuntime(shot);
+        set((currentState) => {
+          const nextShotRuntimes = { ...currentState.shot_runtimes };
+          file15RuntimeShots.forEach((shot) => {
+            const didHydrationFail = shot.Q_RenderState.status === 'FAILED';
+            const isReady = !didHydrationFail && isRuntimeExportReady(shot);
+            const hydratedRuntime: ShotRuntime = {
+              ...shot,
+              A_Identity: {
+                ...shot.A_Identity,
+                updated_at: new Date().toISOString(),
+              },
+              P_Computed: isReady ? generatePrompt(shot) : shot.P_Computed,
+              Q_RenderState: {
+                ...shot.Q_RenderState,
+                status: isReady ? 'GENERATED' : 'FAILED',
+                export_status: isReady ? 'GENERATED' : 'DRAFT',
+              },
+              R_QAState: {
+                ...shot.R_QAState,
+                qa_status: isReady ? shot.R_QAState.qa_status : 'FAIL',
+                issues: isReady
+                  ? shot.R_QAState.issues
+                  : Array.from(
+                      new Set([
+                        ...shot.R_QAState.issues,
+                        'Runtime export readiness validation failed.',
+                      ])
+                    ),
+                fix_instructions: isReady
+                  ? shot.R_QAState.fix_instructions
+                  : Array.from(
+                      new Set([
+                        ...shot.R_QAState.fix_instructions,
+                        'Hydrate start_frame_prompt, motion_intent, and end_frame_prompt from screenplay layers before export.',
+                      ])
+                    ),
+              },
+            };
+
+            nextShotRuntimes[hydratedRuntime.A_Identity.shot_id] = hydratedRuntime;
+          });
+
+          return {
+            shot_runtimes: nextShotRuntimes,
+            active_shot_id: file15RuntimeShots[file15RuntimeShots.length - 1]?.A_Identity.shot_id ?? currentState.active_shot_id,
+          };
         });
       },
 
