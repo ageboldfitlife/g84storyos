@@ -26,8 +26,8 @@ const SYSTEM_PROMPT = `You are a Data Hydrator for a film studio.
 Based on the provided Screenplay Text, analyze each skeleton shot and return a strict JSON object with a "shots" array.
 For each shot, fill these fields: shot_id, subject, action, pose, gaze, prop_state, environment, lighting, camera, start_frame_prompt, end_frame_prompt, motion_intent.
 All field values MUST be 100% English.
-The start_frame_prompt must describe the static image at the first second of the shot.
-The end_frame_prompt must describe the static image at the final second of the shot.
+The start_frame_prompt and end_frame_prompt must each be complete English sentences with an explicit subject, a finite verb, and a complete clause.
+Do not write fragments, noun piles, or sentence fragments such as "A top-down view of an alley" or "The shop quiet, lit by warm interior light".
 The motion_intent must describe the movement, pacing, and emotional transition connecting the two frames.
 IMPORTANT: You must infer and CREATE COMPLETELY NEW values for environment, lighting, and camera based on the screenplay. NEVER leave these fields empty and never rely on default skeleton values. If the screenplay describes silent darkness, lighting must be "pitch black, single warm light source" and must not mention "Neon Noir", "red/blue neon", or any inherited default look.
 Do not add markdown. Do not add explanation. Return only JSON.`;

@@ -5,7 +5,7 @@ import { injectGlobalNegativeProfile } from './negative-profile';
 
 function asFluxParagraph(framePrompt: string, runtime: RenderPackage): string {
   const prompt = cleanPromptText(framePrompt);
-  const subject = inferPhysicalSubject(prompt);
+  const subject = inferPhysicalSubject(prompt, runtime);
 
   return `${prompt} Frame subject: ${subject}. Compose as a grounded cinematic still image with coherent environment geometry, consistent lighting, natural camera perspective, tactile real-world texture, and no invented characters, props, or locations. Aspect ratio ${runtime.aspect_ratio}.`;
 }

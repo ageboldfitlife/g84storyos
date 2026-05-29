@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { useStoryStore } from '@/store/storyStore';
-import { isRuntimeExportReady } from '@/lib/runtime-validator';
+import { getRuntimeValidationDiagnostics, isRuntimeExportReady } from '@/lib/runtime-validator';
 import type { ShotRuntime } from '@/types/shot-runtime';
 
 type ProductionStatus = 'NOT_GENERATED' | 'GENERATED' | 'QA_PASS' | 'FAILED';
@@ -85,6 +85,7 @@ function ShotLane({
   const activeShotId = useStoryStore((state) => state.active_shot_id);
   const status = getProductionStatus(shot);
   const statusBadge = getStatusBadge(status);
+  const diagnostics = getRuntimeValidationDiagnostics(shot);
   const isHydrated = status === 'GENERATED' || status === 'QA_PASS';
   const isReadyForExport = status === 'QA_PASS' && hasMotionRuntime(shot);
   const isActive = activeShotId === shot.A_Identity.shot_id;
@@ -123,6 +124,30 @@ function ShotLane({
 
       <div className="mt-3 text-sm text-gray-300">{shot.A_Identity.title}</div>
       <div className="mt-1 text-xs text-gray-500">{shot.B_Narrative.narrative_intent}</div>
+
+      {status === 'FAILED' && (
+        <div className="mt-4 rounded border border-red-800 bg-red-950/30 p-3 text-xs text-red-100">
+          <div className="mb-1 font-semibold uppercase tracking-[0.25em] text-red-300">FAILED_FIELD</div>
+          <div className="mb-2 text-sm text-red-100">{diagnostics.failedField ?? 'NONE'}</div>
+          <div className="mb-1 font-semibold uppercase tracking-[0.25em] text-red-300">FAILED_SENTENCE</div>
+          <div className="mb-2 text-sm text-red-100">{diagnostics.failedSentence || '—'}</div>
+          <div className="mb-1 font-semibold uppercase tracking-[0.25em] text-red-300">FAILED_REASON</div>
+          <div className="mb-2 text-sm text-red-100">{diagnostics.failedReason}</div>
+          <div className="mb-1 font-semibold uppercase tracking-[0.25em] text-red-300">FAILED_TEXT</div>
+          <div className="text-sm text-red-100">{diagnostics.failedText || '—'}</div>
+          <div className="mt-3 space-y-1 border-t border-red-900 pt-3 text-[11px] text-red-200">
+            {(['start_frame_prompt', 'motion_intent', 'end_frame_prompt'] as const).map((field) => {
+              const item = diagnostics.fields[field];
+              return (
+                <div key={field} className="flex items-start justify-between gap-3">
+                  <span className="font-semibold uppercase tracking-[0.2em]">{field}</span>
+                  <span className={item.ok ? 'text-green-300' : 'text-red-200'}>{item.ok ? 'PASS' : 'FAIL'} — {item.reason}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {isHydrated && (
         <div className="mt-4 flex flex-col gap-3">

@@ -23,6 +23,6 @@ export const OpeningPatternsDict: Record<string, OpeningPattern> = {
       { position: 2, allowed_shot_types: ["CUTAWAY"], handle_distribution: "both_ends", min_handle_sec: 1.0 },
       { position: 3, allowed_shot_types: ["COVERAGE", "HERO"], handle_distribution: "head_only", min_handle_sec: 1.0 }
     ],
-    forbidden_camera_movements: ["fast_pan", "whip_pan", "handheld_shaky"]
+    forbidden_camera_movements: ["fast_pan", "whip_pan"]
   }
 };

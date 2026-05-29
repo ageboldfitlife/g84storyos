@@ -260,6 +260,7 @@ export interface SectionR_QAState {
 }
 
 export interface ShotRuntime {
+  text_overlay?: string;
   A_Identity: SectionA_Identity;
   B_Narrative: SectionB_Narrative;
   C_PatternRef: SectionC_PatternRef;

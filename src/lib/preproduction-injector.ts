@@ -84,14 +84,24 @@ function applyGenderPronounLock(prompt: string, charRefs: string[]): string {
   const hasMaleCharacter = charRefs.some((charRef) => CharacterBible[charRef]?.gender === 'MALE');
   const hasFemaleCharacter = charRefs.some((charRef) => CharacterBible[charRef]?.gender === 'FEMALE');
 
-  if (!hasFemaleCharacter || hasMaleCharacter) {
-    return prompt;
+  if (hasFemaleCharacter && !hasMaleCharacter) {
+    return prompt
+      .replace(/\bhis\b/gi, 'her')
+      .replace(/\bhim\b/gi, 'her')
+      .replace(/\bhe\b/gi, 'she')
+      .replace(/\bman\b/gi, 'woman')
+      .replace(/\bhimself\b/gi, 'herself');
   }
 
-  return prompt
-    .replace(/\bhis\b/gi, 'her')
-    .replace(/\bhim\b/gi, 'her')
-    .replace(/\bhe\b/gi, 'she');
+  if (hasMaleCharacter && !hasFemaleCharacter) {
+    return prompt
+      .replace(/\bshe\b/gi, 'he')
+      .replace(/\bher\b/gi, 'him')
+      .replace(/\bherself\b/gi, 'himself')
+      .replace(/\bwoman\b/gi, 'man');
+  }
+
+  return prompt;
 }
 
 function buildCharacterVisualLock(charRefs: string[]): string {
@@ -189,6 +199,7 @@ export function injectPreProductionRuntime(shot: ShotRuntime): ShotRuntime {
     .join(', ');
   const startFramePrompt = injectFramePrompt(shot.E_Motion.start_frame_prompt, characterVisualLock, charRefs);
   const endFramePrompt = injectFramePrompt(shot.E_Motion.end_frame_prompt, characterVisualLock, charRefs);
+  const motionIntent = applyGenderPronounLock(shot.E_Motion.motion_intent ?? '', charRefs);
 
   return {
     ...shot,
@@ -207,6 +218,7 @@ export function injectPreProductionRuntime(shot: ShotRuntime): ShotRuntime {
       ...shot.E_Motion,
       start_frame_prompt: startFramePrompt ?? shot.E_Motion.start_frame_prompt,
       end_frame_prompt: endFramePrompt ?? shot.E_Motion.end_frame_prompt,
+      motion_intent: motionIntent || shot.E_Motion.motion_intent,
     },
     G_Camera: {
       ...shot.G_Camera,

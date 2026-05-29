@@ -13,6 +13,11 @@ export interface RenderPackage {
   start_frame_prompt?: string;
   motion_intent?: string;
   end_frame_prompt?: string;
+  text_overlay?: string;
+  subject?: string;
+  foreground_actor?: string;
+  shot_focus?: string;
+  char_refs?: string[];
 
   reference_images: {
     face_ref: string | null;

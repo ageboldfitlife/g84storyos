@@ -2,6 +2,7 @@ import type { ShotRuntime } from '@/types/shot-runtime';
 
 interface HydratedShotPayload {
   shot_id: string;
+  text_overlay?: string;
   subject?: string;
   action?: string;
   pose?: string;
@@ -20,6 +21,7 @@ interface ParsedScreenplayBlock {
   envId: string;
   layers: Record<string, string>;
   fallbackText: string;
+  overlayText?: string;
 }
 
 function isFilled(value: string | null | undefined): value is string {
@@ -53,11 +55,13 @@ function parseScreenplayBlocks(screenplayText: string): ParsedScreenplayBlock[] 
         acc[normalizeLayerName(layerMatch[1])] = layerMatch[2].trim();
         return acc;
       }, {});
+      const overlayText = block.match(/\/\s*(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i)?.[1]?.trim();
 
       blocks.push({
         shotNumber: Number(metadataMatch[1]),
         envId: metadataMatch[2].toUpperCase(),
         layers,
+        overlayText,
         fallbackText: block
           .split(/\r?\n/)
           .filter((line) => !/^SHOT\s+\d+/i.test(line))
@@ -87,6 +91,7 @@ function buildStructuredPatches(
       }
 
       const layers = block.layers;
+      const textOverlay = block.overlayText;
       const actionLayer = firstFilled(layers.ACTION_LAYER, layers.ACTION, layers.BLOCKING);
       const cameraPhysics = firstFilled(layers.CAMERA_PHYSICS, layers.CAMERA);
       const movementPath = firstFilled(layers.MOVEMENT_PATH, layers.MOVEMENT);
@@ -109,6 +114,7 @@ function buildStructuredPatches(
         shot.A_Identity.shot_id,
         {
           shot_id: shot.A_Identity.shot_id,
+          text_overlay: textOverlay,
           subject,
           action: actionLayer,
           pose: actionLayer,
@@ -158,6 +164,7 @@ function mergeHydrationPatch(shot: ShotRuntime, patch: HydratedShotPayload | und
 
   return {
     ...shot,
+    text_overlay: isFilled(patch.text_overlay) ? patch.text_overlay.trim() : shot.text_overlay,
     B_Narrative: {
       ...shot.B_Narrative,
       narrative_intent: isFilled(patch.action)

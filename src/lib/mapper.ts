@@ -1,6 +1,17 @@
 import type { ShotRuntime } from "../types/shot-runtime";
 import type { RenderPackage } from "../types/render-package";
 
+function extractTextOverlay(shot: ShotRuntime): string | undefined {
+  const direct = shot.text_overlay?.trim();
+  if (direct) return direct;
+
+  const match = [shot.A_Identity.title, shot.B_Narrative.narrative_intent, shot.D_Frames.start_frame.description]
+    .join(' ')
+    .match(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/gi);
+
+  return match?.[0]?.trim();
+}
+
 export type RenderTargetTool = "flux" | "midjourney" | "comfyui" | "sora" | "kling";
 
 export function exportRenderPackage(
@@ -23,6 +34,8 @@ export function exportRenderPackage(
   const startFramePrompt = shot.E_Motion.start_frame_prompt || "";
   const motionIntent = shot.E_Motion.motion_intent || "";
   const endFramePrompt = shot.E_Motion.end_frame_prompt || "";
+  const textOverlay = extractTextOverlay(shot);
+  const subject = shot.I_Character.char_refs?.[0] ?? shot.I_Character.character_ids?.[0] ?? shot.A_Identity.title;
   const hasMotionRuntime = Boolean(
     startFramePrompt.trim() || endFramePrompt.trim()
   );
@@ -45,6 +58,11 @@ export function exportRenderPackage(
     start_frame_prompt: startFramePrompt,
     motion_intent: motionIntent,
     end_frame_prompt: endFramePrompt,
+    text_overlay: textOverlay,
+    subject,
+    foreground_actor: subject,
+    shot_focus: shot.D_Frames.start_frame.description || shot.A_Identity.title,
+    char_refs: shot.I_Character.char_refs ?? shot.I_Character.character_ids,
 
     reference_images: shot.O_MachineBridge.ref_images,
     seed: renderSeed,

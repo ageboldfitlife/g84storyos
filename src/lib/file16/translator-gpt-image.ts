@@ -14,7 +14,7 @@ function asGptImagePrompt(framePrompt: string, runtime: RenderPackage) {
     global_context: prompt,
     color_palette: ['FILE15-derived practical colors', 'natural shadow tones'],
     composition: {
-      subject: inferPhysicalSubject(prompt),
+      subject: inferPhysicalSubject(prompt, runtime),
       framing: 'cinematic still frame based only on FILE15 runtime',
       camera: 'preserve the camera angle already present in runtime',
     },

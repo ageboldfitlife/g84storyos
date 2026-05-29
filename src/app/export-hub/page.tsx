@@ -8,8 +8,28 @@ import {
   type CompiledRenderExport,
   type ToolPromptTarget,
 } from '@/lib/tool-prompt-compiler';
+import { isRuntimeExportReady } from '@/lib/runtime-validator';
 
 const TOOL_PROMPT_TARGETS: ToolPromptTarget[] = ['nano_banana', 'gpt_image', 'flux_basic'];
+
+function sanitizeFilenameSegment(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildExportFilename(kind: 'MASTER' | 'START_FRAMES' | 'END_FRAMES' | 'MOTION', projectId: string, episodeId: string, episodeTitle: string, targetTool: string, version: string): string {
+  const base = [projectId, episodeId, episodeTitle].map((value) => sanitizeFilenameSegment(value || 'UNKNOWN')).join('_');
+
+  if (kind === 'MOTION') {
+    return `${base}_${kind}_${sanitizeFilenameSegment(version)}.json`;
+  }
+
+  return `${base}_${kind}_${sanitizeFilenameSegment(targetTool)}_${sanitizeFilenameSegment(version)}.json`;
+}
 
 function downloadJson(filename: string, payload: unknown) {
   const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
@@ -26,13 +46,14 @@ function stringifyPrompt(prompt: unknown): string {
 }
 
 function ExportHubContent() {
-  const { shot_runtimes, exportShotRenderPackage, markShotAsExported } = useStoryStore();
+  const { project_meta, shot_runtimes, exportShotRenderPackage, markShotAsExported } = useStoryStore();
   const [targetTool, setTargetTool] = useState<ToolPromptTarget>('flux_basic');
 
   const renderPackages = useMemo(() => {
     return Object.values(shot_runtimes).reduce<Array<{ shotId: string; pkg: CompiledRenderExport }>>(
       (packages, shot) => {
         if (shot.P_Computed.generation_status !== 'generated') return packages;
+        if (!isRuntimeExportReady(shot)) return packages;
 
         try {
           const rawPackage = exportShotRenderPackage(shot.A_Identity.shot_id, 'flux');
@@ -49,6 +70,90 @@ function ExportHubContent() {
       []
     );
   }, [exportShotRenderPackage, shot_runtimes, targetTool]);
+
+  const exportMetadata = useMemo(() => {
+    const firstPackage = renderPackages[0]?.pkg;
+
+    return {
+      projectId: project_meta.id || 'PROJECT',
+      episodeId: firstPackage?.raw_render_package.episode_id || 'E01',
+      episodeTitle: project_meta.title || 'EPISODE',
+      version: project_meta.version || 'v001',
+      targetTool,
+    };
+  }, [project_meta.id, project_meta.title, project_meta.version, renderPackages, targetTool]);
+
+  const handleDownloadMaster = () => {
+    downloadJson(
+      buildExportFilename('MASTER', exportMetadata.projectId, exportMetadata.episodeId, exportMetadata.episodeTitle, exportMetadata.targetTool, exportMetadata.version),
+      renderPackages.map((item) => ({
+        shot_id: item.pkg.shot_id,
+        target_tool: item.pkg.target_tool,
+        raw_render_package: item.pkg.raw_render_package,
+        tool_prompt_package: item.pkg.tool_prompt_package,
+      }))
+    );
+  };
+
+  const handleDownloadStartFrames = () => {
+    downloadJson(
+      buildExportFilename('START_FRAMES', exportMetadata.projectId, exportMetadata.episodeId, exportMetadata.episodeTitle, exportMetadata.targetTool, exportMetadata.version),
+      renderPackages.map((item) => ({
+        shot_id: item.pkg.shot_id,
+        scene_id: item.pkg.raw_render_package.scene_id,
+        episode_id: item.pkg.raw_render_package.episode_id,
+        target_tool: item.pkg.target_tool,
+        frame_type: 'START',
+        prompt: item.pkg.tool_prompt_package.start_frame.prompt,
+        negative_prompt: item.pkg.tool_prompt_package.start_frame.negative_prompt,
+        reference_images: item.pkg.raw_render_package.reference_images,
+        text_overlay: item.pkg.raw_render_package.text_overlay ?? '',
+        seed: item.pkg.raw_render_package.seed,
+      }))
+    );
+  };
+
+  const handleDownloadEndFrames = () => {
+    downloadJson(
+      buildExportFilename('END_FRAMES', exportMetadata.projectId, exportMetadata.episodeId, exportMetadata.episodeTitle, exportMetadata.targetTool, exportMetadata.version),
+      renderPackages.map((item) => ({
+        shot_id: item.pkg.shot_id,
+        scene_id: item.pkg.raw_render_package.scene_id,
+        episode_id: item.pkg.raw_render_package.episode_id,
+        target_tool: item.pkg.target_tool,
+        frame_type: 'END',
+        prompt: item.pkg.tool_prompt_package.end_frame.prompt,
+        negative_prompt: item.pkg.tool_prompt_package.end_frame.negative_prompt,
+        reference_images: item.pkg.raw_render_package.reference_images,
+        text_overlay: item.pkg.raw_render_package.text_overlay ?? '',
+        seed: item.pkg.raw_render_package.seed,
+      }))
+    );
+  };
+
+  const handleDownloadMotion = () => {
+    downloadJson(
+      buildExportFilename('MOTION', exportMetadata.projectId, exportMetadata.episodeId, exportMetadata.episodeTitle, exportMetadata.targetTool, exportMetadata.version),
+      renderPackages.map((item) => ({
+        shot_id: item.pkg.shot_id,
+        scene_id: item.pkg.raw_render_package.scene_id,
+        episode_id: item.pkg.raw_render_package.episode_id,
+        motion_intent: item.pkg.tool_prompt_package.motion_intent,
+        start_frame_asset_id: null,
+        end_frame_asset_id: null,
+        duration_target_sec: item.pkg.raw_render_package.duration_target_sec,
+        camera_variant: 'A',
+        notes: '',
+      }))
+    );
+  };
+
+  const handleDownloadAllLanes = () => {
+    handleDownloadMaster();
+    setTimeout(handleDownloadStartFrames, 120);
+    setTimeout(handleDownloadEndFrames, 240);
+    setTimeout(handleDownloadMotion, 360);
+  };
 
   const handleDownloadAll = () => {
     downloadJson('RenderPackages_ALL.json', renderPackages.map((item) => item.pkg));
@@ -78,11 +183,46 @@ function ExportHubContent() {
                 ))}
               </select>
               <button
+                onClick={handleDownloadMaster}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-yellow-600 px-4 py-3 font-bold text-black transition hover:bg-yellow-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                EXPORT MASTER
+              </button>
+              <button
+                onClick={handleDownloadStartFrames}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-emerald-600 px-4 py-3 font-bold text-black transition hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                EXPORT START FRAMES
+              </button>
+              <button
+                onClick={handleDownloadEndFrames}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-rose-600 px-4 py-3 font-bold text-black transition hover:bg-rose-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                EXPORT END FRAMES
+              </button>
+              <button
+                onClick={handleDownloadMotion}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-sky-600 px-4 py-3 font-bold text-black transition hover:bg-sky-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                EXPORT MOTION
+              </button>
+              <button
+                onClick={handleDownloadAllLanes}
+                disabled={renderPackages.length === 0}
+                className="rounded bg-violet-600 px-4 py-3 font-bold text-black transition hover:bg-violet-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                EXPORT ALL LANES
+              </button>
+              <button
                 onClick={handleDownloadAll}
                 disabled={renderPackages.length === 0}
-                className="rounded bg-yellow-600 px-5 py-3 font-bold text-black transition hover:bg-yellow-500 disabled:bg-zinc-700 disabled:text-zinc-400"
+                className="rounded bg-zinc-800 px-4 py-3 font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:bg-zinc-700 disabled:text-zinc-400"
               >
-                TAI TAT CA JSON
+                LEGACY ALL JSON
               </button>
             </div>
           </div>
